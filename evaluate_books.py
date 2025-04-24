@@ -1,24 +1,45 @@
 import os
 import re
 from ebooklib import epub, ITEM_DOCUMENT
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
+import pysbd
 
-def count_tags_and_words(html_content):
-    soup = BeautifulSoup(html_content, 'lxml')
-    tags = soup.find_all()
+def extract_text_with_tag_markers(soup):
+    output = []
+
+    def recurse(node):
+        if isinstance(node, NavigableString):
+            output.append(str(node))
+        elif isinstance(node, Tag):
+            output.append(' [[TAG]] ')
+            for child in node.children:
+                recurse(child)
+            output.append(' [[TAG]] ')
+
     body = soup.find('body')
-    text = body.get_text(separator=' ') if body else soup.get_text(separator=' ')
-    words = re.findall(r'\w+', text)
-    return len(tags), len(words)
+    recurse(body if body else soup)
+    return ''.join(output)
+
+def count_tag_interruptions(html_content):
+    soup = BeautifulSoup(html_content, 'lxml')
+    marked_text = extract_text_with_tag_markers(soup)
+    segmenter = pysbd.Segmenter(language="en", clean=False)
+    sentences = segmenter.segment(marked_text)
+    if False and len(sentences) > 10:
+        print(f"{sentences[6]}\n")
+    interruptions = 0
+    for sentence in sentences:
+        interruptions += sentence.count('[[TAG]]')
+    return interruptions, len(sentences)
 
 def score_epub(epub_path):
     try:
-        book = epub.read_epub(epub_path)
+        book = read_epub(epub_path, options={'ignore_missing_items': True})
     except Exception as e:
         print(f"Error reading {os.path.basename(epub_path)}: {e}")
         return None
-    total_tags = 0
-    total_words = 0
+    total_interrupts = 0
+    total_sentences = 0
     doc_items = list(book.get_items_of_type(ITEM_DOCUMENT))
     if len(doc_items) <= 1:
         return None
@@ -28,12 +49,12 @@ def score_epub(epub_path):
         except Exception as e:
             print(f"Error decoding {item.file_name}: {e}")
             continue
-        tags, words = count_tags_and_words(html)
-        total_tags += tags
-        total_words += words
-    if total_words == 0:
+        interrupts, sentences = count_tag_interruptions(html)
+        total_interrupts += interrupts
+        total_sentences += sentences
+    if total_sentences == 0:
         return None
-    return (total_tags / total_words) * 100
+    return (total_interrupts / total_sentences) * 100
 
 def main():
     input_dir = "./input_files"
