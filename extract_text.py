@@ -22,6 +22,6 @@ def main(epub_path):
     print('Extracted content saved to', output_path)
 
 if __name__ == '__main__':
-    epub_path = 'input.epub'
+    epub_path = input("Input file: ")
     main(epub_path)
 
